@@ -8,6 +8,7 @@ from PIL import Image, ExifTags
 class CropView(QGraphicsView):
     def __init__(self):
         super().__init__()
+
         self.scene = QGraphicsScene(self)
         self.setScene(self.scene)
 
@@ -60,7 +61,7 @@ class CropView(QGraphicsView):
         if self.crop_rect is None:
             return
         self.dragging = True
-        self.last_pos = self.mapToScene(event.pos())
+        self.last_pos = self.mapToScene(event.position().toPoint())
 
     def mouseMoveEvent(self, event):
         if not self.dragging or self.crop_rect is None:
@@ -95,6 +96,7 @@ class MainWindow(QMainWindow):
     def __init__(self, File = None, parent=None):
         # 親クラスの初期化
         super().__init__(parent)
+        self.settings = QSettings("HoshiYakiImo", "aspectChange")
         self.Makewindow()
 
         if File == None:
@@ -104,15 +106,22 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("aspectChange")
         self.resize(800,600)
         self.MainWinMainLayout = QVBoxLayout()
+        self.underLayout = QHBoxLayout()
 
         MenuBar = self.menuBar()
         mFile = MenuBar.addMenu("ファイル")
+        mSetting = MenuBar.addMenu("設定")
         self.acOpenFile = QAction("開く", self)
         self.acOpenFile.triggered.connect(self.file_open)
-        self.acCloseFile = QAction("閉じる", self)
-        self.acCloseFile.triggered.connect(self.file_close)
+        self.acSetExportFolder = QAction("出力フォルダ", self)
+        self.acSetExportFolder.triggered.connect(self.set_export_folder)
         mFile.addAction(self.acOpenFile)
-        mFile.addAction(self.acCloseFile)
+        mSetting.addAction(self.acSetExportFolder)
+
+        # Makewindow 内
+        self.comment_input = QLineEdit()
+        self.comment_input.setPlaceholderText("～にて")
+
 
         self.export = QPushButton("出力")
         self.export.clicked.connect(self.Export)
@@ -120,7 +129,9 @@ class MainWindow(QMainWindow):
         self.view = CropView()
 
         self.MainWinMainLayout.addWidget(self.view)
-        self.MainWinMainLayout.addWidget(self.export)
+        self.MainWinMainLayout.addLayout(self.underLayout)
+        self.underLayout.addWidget(self.comment_input)
+        self.underLayout.addWidget(self.export)
         centralWidget = QWidget()
         centralWidget.setLayout(self.MainWinMainLayout)
         self.setCentralWidget(centralWidget)
@@ -136,78 +147,89 @@ class MainWindow(QMainWindow):
         self.export.setDisabled(False)
         self.view.load_image(Filename)
 
-    def file_close(self):
-        pass
+    def set_export_folder(self):
+        folder = QFileDialog.getExistingDirectory(self, "出力フォルダを選択", "", QFileDialog.ShowDirsOnly)
+
+        if folder:
+            self.settings.setValue("exportFolder", folder)
 
     def Export(self):
         if self.view.pixmap_item is None or self.view.crop_rect is None:
             return
 
-        # 元 pixmap
         pixmap = self.view.pixmap_item.pixmap()
 
-        # crop_rect の Scene 座標
         crop_rect = self.view.crop_rect
         rect = crop_rect.rect()
-        pos = crop_rect.pos()
+        pos = self.mapToScene(event.position().toPoint())
         crop_x = int(pos.x())
         crop_y = int(pos.y())
         crop_w = int(rect.width())
         crop_h = int(rect.height())
 
-        # 元 pixmap から切り出す
         cropped = pixmap.copy(crop_x, crop_y, crop_w, crop_h)
 
-        # 枠の太さと余白
-        border = max(50, crop_w // 8)  # 太く
+        border = max(50, crop_w // 8)
         canvas = QPixmap(crop_w + border*2, crop_h + border*2)
         canvas.fill(Qt.transparent)
 
         painter = QPainter(canvas)
-        painter.setRenderHint(QPainter.Antialiasing)  # 滑らかに描画
+        painter.setRenderHint(QPainter.Antialiasing)
 
-        # 元画像を中央に描く
         painter.drawPixmap(border, border, cropped)
 
-        # 枠線描画
-        pen = QPen(QColor(240, 240, 255), border)
-        pen.setJoinStyle(Qt.MiterJoin)  # 角を直角に
-        pen.setCapStyle(Qt.SquareCap)   # 線の端も四角
-
+        # 枠
+        pen = QPen(QColor(244,235,255), border)
+        pen.setJoinStyle(Qt.MiterJoin)
+        pen.setCapStyle(Qt.SquareCap)
         painter.setPen(pen)
         painter.drawRect(border//2, border//2, crop_w + border - 1, crop_h + border - 1)
 
-        # 日付取得（self.current_file に保存しておく）
-        date_str = None
+        # 日付取得
+        date_str = ""
         try:
-            from PIL import Image, ExifTags
-            img = Image.open(self.view.current_file)  # ファイルパスから開く
+            img = Image.open(self.view.current_file)
             exif_data = img._getexif()
             if exif_data:
                 for tag_id, value in exif_data.items():
                     tag = ExifTags.TAGS.get(tag_id)
                     if tag == "DateTimeOriginal":
-                        date_str = value
+                        # YYYY:MM:DD HH:MM:SS → MM月DD日
+                        date_parts = value.split()[0].split(":")
+                        date_str = f"{int(date_parts[0])}.{int(date_parts[1])}.{int(date_parts[2])}"
                         break
         except Exception as e:
             print("EXIF 読み込み失敗:", e)
 
-        # 日付描画
-        print(date_str)
-        if date_str:
-            font = QFont("Arial", max(40, crop_h // 10))
+        # コメント取得（QLineEdit から）
+        comment = self.comment_input.text() if hasattr(self, "comment_input") else ""
+        text = f"{date_str} {comment}".strip()
+
+        # 左下に文字描画
+        if text:
+            font_size = max(18, crop_h //30)
+            font = QFont("みかちゃん", font_size)
             painter.setFont(font)
-            painter.setPen(QPen(QColor(255,255,255)))  # 白っぽく
-            painter.drawText(border + 20, crop_h + border - 20, date_str)
+            painter.setPen(QPen(QColor(0,0,10)))  # 黒
+
+            # 余白計算
+            left_margin = 100
+            top_margin = font_size * 2.5       # 上に2行分余白（見た目調整用）
+
+            # 描画 y座標 = キャンバス高さ - 下余白
+            y_pos = border + crop_h + top_margin
+            painter.drawText(left_margin, y_pos, text)
 
 
         painter.end()
 
-        save_path, _ = QFileDialog.getSaveFileName(
-            self, "保存先を選択", "", "PNG Files (*.png);;JPEG Files (*.jpg *.jpeg)"
-        )
+        export_dir = self.settings.value("exportFolder", "")
+
+        save_path, _ = QFileDialog.getSaveFileName(self, "保存先を選択", export_dir, "PNG Files (*.png);;JPEG Files (*.jpg *.jpeg)")
+
         if save_path:
             canvas.save(save_path)
+
 
 
     def No_file(self):
@@ -217,5 +239,8 @@ if __name__ == "__main__":
     app = QApplication(sys.argv)    # PySide6の実行
     app.setWindowIcon(QIcon("icon.ico"))
     window = MainWindow()           # ユーザがコーディングしたクラス
+    if len(sys.argv) > 1:
+        window.view.load_imange(sys.argv[1])
+        window.export.setDisabled(False)
     window.show()                   # PySide6のウィンドウを表示
     sys.exit(app.exec())            # PySide6の終了
