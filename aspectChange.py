@@ -67,7 +67,7 @@ class CropView(QGraphicsView):
         if not self.dragging or self.crop_rect is None:
             return
 
-        pos = self.mapToScene(event.pos())
+        pos = self.mapToScene(event.position().toPoint())
         delta = pos - self.last_pos
 
         crop_rect_rect = self.crop_rect.rect()
@@ -161,7 +161,7 @@ class MainWindow(QMainWindow):
 
         crop_rect = self.view.crop_rect
         rect = crop_rect.rect()
-        pos = self.mapToScene(event.position().toPoint())
+        pos = crop_rect.pos()
         crop_x = int(pos.x())
         crop_y = int(pos.y())
         crop_w = int(rect.width())
