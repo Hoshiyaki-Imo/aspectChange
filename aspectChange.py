@@ -172,7 +172,7 @@ class TextTemplateDialog(QDialog):
 
 
 class ExportWorker(QObject):
-    finished = Signal()
+    finished = Signal(str)
     error = Signal(str)
 
     def __init__(self, pixmap, crop_rect, text, family, save_path, comment, filepath):
@@ -262,7 +262,7 @@ class ExportWorker(QObject):
         except Exception as e:
             self.error.emit(str(e))
         finally:
-            self.finished.emit()
+            self.finished.emit(self.save_path)
 
 
 
@@ -279,12 +279,18 @@ class MainWindow(QMainWindow):
 
         if File == None:
             self.No_file()
+            self.file_open()
+        else:
+            self.loadedFile(File)
 
     def Makewindow(self):
         self.setWindowTitle("aspectChange")
         self.resize(800,600)
         self.MainWinMainLayout = QVBoxLayout()
         self.underLayout = QHBoxLayout()
+
+        self.statusBar = self.statusBar()
+        self.setStatusBar(self.statusBar)
 
         MenuBar = self.menuBar()
         mFile = MenuBar.addMenu("ファイル")
@@ -320,26 +326,31 @@ class MainWindow(QMainWindow):
         centralWidget.setLayout(self.MainWinMainLayout)
         self.setCentralWidget(centralWidget)
 
+        self.statusBar.showMessage("正常に起動しました")
+
     def file_open(self):
         try:
             Filename, tmp = QFileDialog.getOpenFileName(self,"ファイルを開く","","Image File (*.jpeg *.jpg *.png *.bmp)")
         except FileNotFoundError:
-            self.StatusBar.showMessage("ファイルが選択されませんでした")
+            self.statusBar.showMessage("ファイルが選択されませんでした")
             return
         if Filename == "":
             return
         self.loadedFile(Filename)
 
     def loadedFile(self, Filename):
-        self.export.setDisabled(False)
         self.view.load_image(Filename)
-        self.setWindowTitle(f"aspectChange - {os.path.basename(Filename)}")
+        self.currentWindowTitle = f"aspectChange - {os.path.basename(Filename)}"
+        self.setWindowTitle(self.currentWindowTitle)
+        self.statusBar.showMessage(f"ファイルが開かれました - {Filename}")
+        self.export.setDisabled(False)
 
     def set_export_folder(self):
         folder = QFileDialog.getExistingDirectory(self, "出力フォルダを選択", "", QFileDialog.ShowDirsOnly)
 
         if folder:
             self.settings.setValue("exportFolder", folder)
+            self.statusBar.showMessage(f"出力フォルダを{folder}に設定しました")
 
     def set_font(self):
         dlg = FontFamilyDialog(self)
@@ -347,6 +358,7 @@ class MainWindow(QMainWindow):
             family = dlg.selected_family()
             if family:
                 self.settings.setValue("fontFamily", family)
+                self.statusBar.showMessage(f"フォントを{family}に設定しました")
 
     def set_text_template(self):
         dlg = TextTemplateDialog(self.textContent, self)
@@ -356,6 +368,7 @@ class MainWindow(QMainWindow):
 
 
     def Export(self):
+        self.statusBar.showMessage("出力準備中")
         if self.view.pixmap_item is None or self.view.crop_rect is None:
             return
 
@@ -376,10 +389,30 @@ class MainWindow(QMainWindow):
         self.worker.finished.connect(self.thread.quit)
         self.worker.finished.connect(self.worker.deleteLater)
         self.thread.finished.connect(self.thread.deleteLater)
+        self.worker.error.connect(self.error_export)
+        self.exportError = False
+
+        self.export.setDisabled(True)
+        self.worker.finished.connect(self.finish_export)
+        self.setEnabled(False)
+        self.statusBar.showMessage("出力中……")
+        self.setWindowTitle(f"出力中…… - {save_path}")
 
         self.thread.start()
 
 
+    def finish_export(self, save_path):
+        if not self.exportError:
+            self.export.setDisabled(False)
+            self.statusBar.showMessage(f"出力完了 - {save_path}")
+        else:
+            self.statusBar.showMessage(f"エラーが発生しました({self.errorDetail})")
+        self.setEnabled(True)
+        self.setWindowTitle(self.currentWindowTitle)
+
+    def error_export(self, detail):
+        self.exportError = True
+        self.errorDetail = detail
 
     def No_file(self):
         self.export.setDisabled(True)
@@ -387,11 +420,11 @@ class MainWindow(QMainWindow):
 if __name__ == "__main__":
     app = QApplication(sys.argv)    # PySide6の実行
     app.setWindowIcon(QIcon("icon.ico"))
-    window = MainWindow()           # ユーザがコーディングしたクラス
+    window = None
     if len(sys.argv) > 1:
-        file = sys.argv[1]
-        if os.path.exists(file):
-            window.view.load_image(file)
-            window.loadedFile(file)
+        window = MainWindow(sys.argv[1])
+    else:
+        window = MainWindow()
+
     window.show()                   # PySide6のウィンドウを表示
     sys.exit(app.exec())            # PySide6の終了
