@@ -122,7 +122,7 @@ class CropView(QGraphicsView):
 
 
 class FontFamilyDialog(QDialog):
-    def __init__(self, parent=None):
+    def __init__(self, italic, parent = None):
         super().__init__(parent)
         self.setWindowTitle("フォント選択")
 
@@ -130,16 +130,24 @@ class FontFamilyDialog(QDialog):
         for family in QFontDatabase.families():
             self.list.addItem(family)
 
+        self.italic = QCheckBox("斜体（イタリック）")
+        self.italic.setChecked(italic)
+
         ok = QPushButton("OK")
         ok.clicked.connect(self.accept)
 
         layout = QVBoxLayout(self)
         layout.addWidget(self.list)
+        layout.addWidget(self.italic)
         layout.addWidget(ok)
 
     def selected_family(self):
         item = self.list.currentItem()
         return item.text() if item else None
+
+    def selected_italic(self):
+        item = self.italic.isChecked()
+        return item
     
 class TextTemplateDialog(QDialog):
     def __init__(self, current, parent=None):
@@ -175,7 +183,7 @@ class ExportWorker(QObject):
     finished = Signal(str)
     error = Signal(str)
 
-    def __init__(self, pixmap, crop_rect, text, family, save_path, comment, filepath):
+    def __init__(self, pixmap, crop_rect, text, family, save_path, comment, filepath, backgroundColor, fontColor, fontItalic):
         super().__init__()
         self.pixmap = pixmap
         self.crop_rect = crop_rect
@@ -184,6 +192,9 @@ class ExportWorker(QObject):
         self.save_path = save_path
         self.comment = comment
         self.filepath = filepath
+        self.backgroundColor = backgroundColor
+        self.fontColor = fontColor
+        self.fontItalic = fontItalic
 
     def run(self):
         try:
@@ -206,7 +217,7 @@ class ExportWorker(QObject):
             painter.drawPixmap(border, border, cropped)
 
             # 枠
-            pen = QPen(QColor(244,235,255), border)
+            pen = QPen(self.backgroundColor, border)
             pen.setJoinStyle(Qt.MiterJoin)
             pen.setCapStyle(Qt.SquareCap)
             painter.setPen(pen)
@@ -243,8 +254,9 @@ class ExportWorker(QObject):
             if text:
                 font_size = max(18, crop_h //30)
                 font = QFont(self.font_family, font_size)
+                font.setItalic(self.fontItalic)
                 painter.setFont(font)
-                painter.setPen(QPen(QColor(0,0,10)))  # 黒
+                painter.setPen(QPen(self.fontColor))
 
                 # 余白計算
                 left_margin = 100
@@ -273,13 +285,17 @@ class MainWindow(QMainWindow):
         self.settings = QSettings("HoshiYakiImo", "aspectChange")
 
         self.textContent = self.settings.value("textContent", "%year%.%month%.%day% %comment%")
+        self.backgroundColor = self.settings.value("backgroundColor", QColor(244,235,255))
+        self.fontColor = self.settings.value("fontColor", QColor(0,0,10))
+        self.fontItalic = self.settings.value("fontItalic", False, bool)
+        self.viewExportCompletedDialog = self.settings.value("viewExportCompletedDialog", True, bool)
         self.Makewindow()
 
         self.view.fileDropped.connect(self.loadedFile)
 
         if File == None:
             self.No_file()
-            self.file_open()
+            #self.file_open()
         else:
             self.loadedFile(File)
 
@@ -297,16 +313,27 @@ class MainWindow(QMainWindow):
         mSetting = MenuBar.addMenu("設定")
         self.acOpenFile = QAction("開く", self)
         self.acOpenFile.triggered.connect(self.file_open)
-        self.acSetExportFolder = QAction("出力フォルダ", self)
+        self.acSetExportFolder = QAction("出力フォルダの選択", self)
         self.acSetExportFolder.triggered.connect(self.set_export_folder)
         self.acSetFont = QAction("フォントの選択", self)
         self.acSetFont.triggered.connect(self.set_font)
-        self.acSetTextTemplete = QAction("挿入する文字列の変更", self)
+        self.acSetTextTemplete = QAction("文字列フォーマットの変更", self)
         self.acSetTextTemplete.triggered.connect(self.set_text_template)
+        self.acSetBackgroundColor = QAction("背景色の変更")
+        self.acSetBackgroundColor.triggered.connect(self.set_background_color)
+        self.acSetFontColor = QAction("文字色の変更", self)
+        self.acSetFontColor.triggered.connect(self.set_font_color)
+        self.acViewExportCompletedDialog = QAction("出力完了時のダイアログ表示")
+        self.acViewExportCompletedDialog.setCheckable(True)
+        self.acViewExportCompletedDialog.triggered.connect(self.view_export_completed_dialog)
+        self.acViewExportCompletedDialog.setChecked(self.viewExportCompletedDialog)
         mFile.addAction(self.acOpenFile)
         mSetting.addAction(self.acSetExportFolder)
         mSetting.addAction(self.acSetFont)
         mSetting.addAction(self.acSetTextTemplete)
+        mSetting.addAction(self.acSetBackgroundColor)
+        mSetting.addAction(self.acSetFontColor)
+        mSetting.addAction(self.acViewExportCompletedDialog)
 
         # Makewindow 内
         self.comment_input = QLineEdit()
@@ -353,18 +380,43 @@ class MainWindow(QMainWindow):
             self.statusBar.showMessage(f"出力フォルダを{folder}に設定しました")
 
     def set_font(self):
-        dlg = FontFamilyDialog(self)
+        italic = False if str(self.fontItalic) == "False" else True
+        print(self.fontItalic)
+        dlg = FontFamilyDialog(italic, self)
         if dlg.exec():
             family = dlg.selected_family()
+            italic = dlg.selected_italic()
             if family:
                 self.settings.setValue("fontFamily", family)
-                self.statusBar.showMessage(f"フォントを{family}に設定しました")
+                self.fontFamily = family
+                self.settings.setValue("fontItalic", bool(italic))
+                self.fontItalic = italic
+                self.statusBar.showMessage(f"フォントを{family}に、イタリックを{italic}に設定しました")
 
     def set_text_template(self):
         dlg = TextTemplateDialog(self.textContent, self)
         if dlg.exec():
             self.textContent = dlg.text()
             self.settings.setValue("textContent", self.textContent)
+
+
+    def set_background_color(self):
+        tmpColor = QColorDialog.getColor(initial = self.backgroundColor, title = "背景色を選択")
+        if tmpColor.isValid():
+            self.backgroundColor = tmpColor
+            self.statusBar.showMessage(f"背景色を変更しました")
+            self.settings.setValue("backgroundColor", tmpColor)
+
+    def set_font_color(self):
+        tmpColor = QColorDialog.getColor(initial = self.fontColor, title = "文字色を選択")
+        if tmpColor.isValid():
+            self.fontColor = tmpColor
+            self.statusBar.showMessage(f"文字色を変更しました")
+            self.settings.setValue("fontColor", tmpColor)
+
+    def view_export_completed_dialog(self, checked):
+        self.viewExportCompletedDialog = checked
+        self.settings.setValue("viewExportCompletedDialog", self.viewExportCompletedDialog)
 
 
     def Export(self):
@@ -381,7 +433,7 @@ class MainWindow(QMainWindow):
         comment = self.comment_input.text() if hasattr(self, "comment_input") else ""
         filepath = self.view.current_file
         self.thread = QThread()
-        self.worker = ExportWorker(pixmap, crop_rect, text, family, save_path, comment, filepath)
+        self.worker = ExportWorker(pixmap, crop_rect, text, family, save_path, comment, filepath, self.backgroundColor, self.fontColor, self.fontItalic)
 
         self.worker.moveToThread(self.thread)
 
@@ -405,6 +457,8 @@ class MainWindow(QMainWindow):
         if not self.exportError:
             self.export.setDisabled(False)
             self.statusBar.showMessage(f"出力完了 - {save_path}")
+            if self.viewExportCompletedDialog:
+                QMessageBox.information(self, "出力完了", f"保存が完了しました\n- {save_path}")
         else:
             self.statusBar.showMessage(f"エラーが発生しました({self.errorDetail})")
         self.setEnabled(True)
