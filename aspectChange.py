@@ -271,10 +271,67 @@ class ExportWorker(QObject):
 
             if self.save_path:
                 canvas.save(self.save_path)
+            
+            # --- 余白付き（非トリミング）画像 ---
+            padded = self.make_padded_pixmap(self.pixmap, self.backgroundColor)
+
+            base, ext = os.path.splitext(self.save_path)
+            padded_path = base + "_padded" + ext
+
+            padded.save(padded_path)
+
+            self.copy_exif(self.filepath, self.save_path)
+            self.copy_exif(self.filepath, padded_path)
+
+
         except Exception as e:
             self.error.emit(str(e))
         finally:
             self.finished.emit(self.save_path)
+
+    def make_padded_pixmap(self, pixmap: QPixmap, bg_color: QColor):
+        w = pixmap.width()
+        h = pixmap.height()
+
+        target_ratio = 4 / 5
+
+        if w / h > target_ratio:
+            # 横が長い → 縦を伸ばす
+            new_w = w
+            new_h = int(w / target_ratio)
+        else:
+            # 縦が長い → 横を伸ばす
+            new_h = h
+            new_w = int(h * target_ratio)
+
+        canvas = QPixmap(new_w, new_h)
+        canvas.fill(bg_color)
+
+        painter = QPainter(canvas)
+        x = (new_w - w) // 2
+        y = (new_h - h) // 2
+        painter.drawPixmap(x, y, pixmap)
+        painter.end()
+
+        return canvas
+    
+
+    def copy_exif(self, src_path, dst_path):
+        try:
+            src = Image.open(src_path)
+            exif = src.getexif()
+
+            if not exif:
+                return
+            
+            exif[0x0131] = "aspectChange"        # Software
+
+            dst = Image.open(dst_path)
+            dst.save(dst_path, exif=exif)
+        except Exception as e:
+            print("EXIF コピー失敗:", e)
+
+
 
 
 
