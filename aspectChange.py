@@ -86,9 +86,6 @@ class CropView(QGraphicsView):
         self.crop_rect.setBrush(Qt.NoBrush)
         self.scene.addItem(self.crop_rect)
 
-        # 長辺方向だけ動く
-        self.move_axis = "x" if img_rect.width() >= img_rect.height() else "y"
-
     def mousePressEvent(self, event):
         if self.crop_rect is None:
             return
@@ -98,27 +95,98 @@ class CropView(QGraphicsView):
     def mouseMoveEvent(self, event):
         if not self.dragging or self.crop_rect is None:
             return
-
+    
         pos = self.mapToScene(event.position().toPoint())
         delta = pos - self.last_pos
-
-        crop_rect_rect = self.crop_rect.rect()
-        crop_pos = self.crop_rect.pos()
+    
+        rect = self.crop_rect.rect()
+        pos0 = self.crop_rect.pos()
         img_rect = self.pixmap_item.boundingRect()
-
-        if self.move_axis == "x":  # 横移動
-            new_x = crop_pos.x() + delta.x()
-            new_x = max(0, min(new_x, img_rect.width() - crop_rect_rect.width()))
-            self.crop_rect.setX(new_x)
-        else:  # 縦移動
-            new_y = crop_pos.y() + delta.y()
-            new_y = max(0, min(new_y, img_rect.height() - crop_rect_rect.height()))
-            self.crop_rect.setY(new_y)
-
+    
+        new_x = pos0.x() + delta.x()
+        new_y = pos0.y() + delta.y()
+    
+        # clamp
+        new_x = max(0, min(new_x, img_rect.width() - rect.width()))
+        new_y = max(0, min(new_y, img_rect.height() - rect.height()))
+    
+        self.crop_rect.setPos(new_x, new_y)
         self.last_pos = pos
+
 
     def mouseReleaseEvent(self, event):
         self.dragging = False
+
+
+    def wheelEvent(self, event):
+        if self.crop_rect is None or self.pixmap_item is None:
+            return
+
+        delta = event.angleDelta().y()
+        if delta == 0:
+            return
+
+        scale_step = 20 if delta > 0 else -20  # 拡大・縮小量（調整可）
+
+        self.resize_crop_rect(scale_step)
+
+
+
+    def resize_crop_rect(self, delta):
+        rect = self.crop_rect.rect()
+        img_rect = self.pixmap_item.boundingRect()
+
+        # 現在の中心
+        center = self.crop_rect.mapToScene(rect.center())
+
+        # 現在サイズ
+        cur_w = rect.width()
+        cur_h = rect.height()
+
+        # 4:5 固定
+        new_w = cur_w + delta
+        new_h = new_w * 5 / 4
+
+        # サイズ制限
+        min_size = min(img_rect.width(), img_rect.height()) / 2
+        max_size = min(img_rect.width(), img_rect.height())
+
+        if new_w < min_size or new_w > max_size:
+            return
+
+        # 新しい rect
+        new_rect = QRectF(0, 0, new_w, new_h)
+        self.crop_rect.setRect(new_rect)
+
+        # 中心を維持
+        self.crop_rect.setPos(
+            center.x() - new_w / 2,
+            center.y() - new_h / 2
+        )
+
+        # はみ出し防止
+        self.clamp_crop_rect()
+
+
+    def clamp_crop_rect(self):
+        rect = self.crop_rect.rect()
+        pos = self.crop_rect.pos()
+        img_rect = self.pixmap_item.boundingRect()
+
+        x = pos.x()
+        y = pos.y()
+
+        if x < 0:
+            x = 0
+        if y < 0:
+            y = 0
+        if x + rect.width() > img_rect.width():
+            x = img_rect.width() - rect.width()
+        if y + rect.height() > img_rect.height():
+            y = img_rect.height() - rect.height()
+
+        self.crop_rect.setPos(x, y)
+
 
 
 class FontFamilyDialog(QDialog):
@@ -346,7 +414,7 @@ class MainWindow(QMainWindow):
         self.fontColor = self.settings.value("fontColor", QColor(0,0,10))
         self.fontItalic = self.settings.value("fontItalic", False, bool)
         self.viewExportCompletedDialog = self.settings.value("viewExportCompletedDialog", True, bool)
-        self.currentOpenFileDir = self.settings.value("currentOpenFileDir", "", int)
+        self.currentOpenFileDir = self.settings.value("currentOpenFileDir", "", str)
         self.lockOpenFileDir = self.settings.value("lockOpenFileDir", False, bool)
 
         self.Makewindow()
