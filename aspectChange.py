@@ -346,6 +346,9 @@ class MainWindow(QMainWindow):
         self.fontColor = self.settings.value("fontColor", QColor(0,0,10))
         self.fontItalic = self.settings.value("fontItalic", False, bool)
         self.viewExportCompletedDialog = self.settings.value("viewExportCompletedDialog", True, bool)
+        self.currentOpenFileDir = self.settings.value("currentOpenFileDir", "", int)
+        self.lockOpenFileDir = self.settings.value("lockOpenFileDir", False, bool)
+
         self.Makewindow()
 
         self.view.fileDropped.connect(self.loadedFile)
@@ -383,6 +386,7 @@ class MainWindow(QMainWindow):
         self.acViewExportCompletedDialog = QAction("出力完了時のダイアログ表示")
         self.acViewExportCompletedDialog.setCheckable(True)
         self.acViewExportCompletedDialog.triggered.connect(self.view_export_completed_dialog)
+        self.aclockOpenFileDir = QAction("選択フォルダのロック")
         self.acViewExportCompletedDialog.setChecked(self.viewExportCompletedDialog)
         mFile.addAction(self.acOpenFile)
         mSetting.addAction(self.acSetExportFolder)
@@ -414,7 +418,9 @@ class MainWindow(QMainWindow):
 
     def file_open(self):
         try:
-            Filename, tmp = QFileDialog.getOpenFileName(self,"ファイルを開く","","Image File (*.jpeg *.jpg *.png *.bmp)")
+            Filename, tmp = QFileDialog.getOpenFileName(self,"ファイルを開く",self.currentOpenFileDir,"Image File (*.jpeg *.jpg *.png *.bmp)")
+            self.currentOpenFileDir = os.path.dirname(Filename)
+            self.settings.setValue("currentOpenFileDir", self.currentOpenFileDir)
         except FileNotFoundError:
             self.statusBar.showMessage("ファイルが選択されませんでした")
             return
