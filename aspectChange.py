@@ -22,6 +22,9 @@ class CropView(QGraphicsView):
         self.crop_rect = None
         self.last_pos = None
         self.current_file = None
+        self.grid = None
+        self.grid_divisions = 3   # デフォルト三分割
+        self.grid_visible = True
 
     # ... (resizeEvent, load_image, mouse系イベントはそのまま) ...
 
@@ -86,6 +89,12 @@ class CropView(QGraphicsView):
         self.crop_rect.setBrush(Qt.NoBrush)
         self.scene.addItem(self.crop_rect)
 
+        self.grid = GridItem(self.crop_rect, self.grid_divisions)
+        self.scene.addItem(self.grid)
+        self.grid.setPos(self.crop_rect.pos())
+        self.grid.setVisible(self.grid_visible)
+
+
     def mousePressEvent(self, event):
         if self.crop_rect is None:
             return
@@ -95,21 +104,25 @@ class CropView(QGraphicsView):
     def mouseMoveEvent(self, event):
         if not self.dragging or self.crop_rect is None:
             return
-    
+
         pos = self.mapToScene(event.position().toPoint())
         delta = pos - self.last_pos
-    
+
         rect = self.crop_rect.rect()
         pos0 = self.crop_rect.pos()
         img_rect = self.pixmap_item.boundingRect()
-    
+
         new_x = pos0.x() + delta.x()
         new_y = pos0.y() + delta.y()
-    
+
         # clamp
         new_x = max(0, min(new_x, img_rect.width() - rect.width()))
         new_y = max(0, min(new_y, img_rect.height() - rect.height()))
-    
+
+        if self.grid:
+            self.grid.setPos(self.crop_rect.pos())
+
+
         self.crop_rect.setPos(new_x, new_y)
         self.last_pos = pos
 
@@ -127,6 +140,9 @@ class CropView(QGraphicsView):
             return
 
         scale_step = 20 if delta > 0 else -20  # 拡大・縮小量（調整可）
+
+        if self.grid:
+            self.grid.update()
 
         self.resize_crop_rect(scale_step)
 
@@ -186,6 +202,45 @@ class CropView(QGraphicsView):
             y = img_rect.height() - rect.height()
 
         self.crop_rect.setPos(x, y)
+
+    def toggle_grid(self):
+        self.grid_visible = not self.grid_visible
+        if self.grid:
+            self.grid.setVisible(self.grid_visible)
+
+
+
+
+class GridItem(QGraphicsItem):
+    def __init__(self, rect_item, divisions=3):
+        super().__init__()
+        self.rect_item = rect_item
+        self.divisions = divisions
+        self.setZValue(10)
+
+    def setDivisions(self, n):
+        self.divisions = max(1, n)
+        self.update()
+
+    def boundingRect(self):
+        return self.rect_item.rect()
+
+    def paint(self, painter, option, widget):
+        if self.divisions <= 1:
+            return
+
+        r = self.rect_item.rect()
+        w, h = r.width(), r.height()
+
+        pen = QPen(QColor(255, 255, 255, 180), 1)
+        painter.setPen(pen)
+
+        step_x = w / self.divisions
+        step_y = h / self.divisions
+
+        for i in range(1, self.divisions):
+            painter.drawLine(step_x * i, 0, step_x * i, h)
+            painter.drawLine(0, step_y * i, w, step_y * i)
 
 
 
